@@ -58,6 +58,9 @@ class EliteAsteroidTracker:
             self.engine.setProperty('rate', self.config['voice_rate'])
             self.engine.setProperty('volume', self.config['voice_volume'])
             
+            # Thread lock for TTS engine (pyttsx3 is not thread-safe)
+            self.tts_lock = threading.Lock()
+            
             # Initialize stats tracking
             self.stats = self.load_stats()
             
@@ -82,7 +85,7 @@ class EliteAsteroidTracker:
             else:
                 self.config = DEFAULT_CONFIG
                 with open(CONFIG_FILE, 'w') as f:
-                    json.dump(self.config, indent=4, sort_keys=True, f)
+                    json.dump(self.config, f, indent=4, sort_keys=True)
                 logger.info("Default configuration created")
         except Exception as e:
             logger.error(f"Error loading configuration: {e}")
@@ -123,7 +126,7 @@ class EliteAsteroidTracker:
     def find_latest_journal(self):
         """Find the latest journal file in the configured directory."""
         try:
-            pattern = re.compile(self.config['file_pattern'].replace('.', '\.').replace('*', '.*'))
+            pattern = re.compile(self.config['file_pattern'].replace('.', r'\.').replace('*', '.*'))
             journal_files = []
             
             # Use pathlib for more reliable file listing
@@ -234,12 +237,14 @@ class EliteAsteroidTracker:
             # Use a separate thread for TTS to avoid blocking
             def speak_thread():
                 try:
-                    self.engine.say(text)
-                    self.engine.runAndWait()
+                    # Use lock to ensure thread-safe access to the TTS engine
+                    with self.tts_lock:
+                        self.engine.say(text)
+                        self.engine.runAndWait()
                 except Exception as e:
                     logger.error(f"Error in TTS thread: {e}")
             
-            threading.Thread(target=speak_thread).start()
+            threading.Thread(target=speak_thread, daemon=True).start()
             logger.info(f"TTS announcement: {text}")
             
         except Exception as e:
